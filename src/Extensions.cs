@@ -67,5 +67,79 @@ namespace PokeLege.UnityRuntimeMCP
                 return obj;
             }
         }
+
+        /// <summary>
+        /// Resolves a string type name to a System.Type across all loaded assemblies.
+        /// </summary>
+        public static Type ResolveType(string typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) return null;
+
+            var type = Type.GetType(typeName);
+            if (type != null) return type;
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                type = asm.GetType(typeName);
+                if (type != null) return type;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a string type name to an object compatible with the target parameter type (System.Type or Il2CppSystem.Type).
+        /// </summary>
+        public static object ResolveTypeForMethod(string typeName, Type targetParameterType)
+        {
+            var managedType = ResolveType(typeName);
+            if (managedType == null) return null;
+
+            if (targetParameterType.FullName == "Il2CppSystem.Type")
+            {
+                try
+                {
+                    // Use Il2CppInterop to convert System.Type to Il2CppSystem.Type
+                    return Il2CppInterop.Runtime.Il2CppType.From(managedType);
+                }
+                catch
+                {
+                    // Fallback to managed type if conversion fails
+                    return managedType;
+                }
+            }
+
+            return managedType;
+        }
+
+        /// <summary>
+        /// Converts a value to an MCP-friendly format. 
+        /// If the value is a Unity Object, it returns an object with identity information.
+        /// </summary>
+        public static object ToMcpValue(this object value)
+        {
+            if (value == null) return null;
+
+            if (value is UnityEngine.Object unityObj)
+            {
+                if (unityObj == null) return null; // Handle destroyed objects
+                return new
+                {
+                    instance_id = unityObj.GetInstanceID(),
+                    name = unityObj.name,
+                    type = unityObj.GetRuntimeType()?.FullName ?? unityObj.GetType().FullName
+                };
+            }
+
+            // Handle non-serializable types
+            if (value is IntPtr || value is UIntPtr) return value.ToString();
+
+            // If it's a primitive type, string, or common serializable type, return as is
+            var type = value.GetType();
+            if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal)) return value;
+
+            // For other types, return ToString() to prevent serialization errors
+            return value.ToString();
+        }
     }
 }

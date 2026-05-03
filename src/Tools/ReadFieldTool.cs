@@ -45,17 +45,43 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
                 if (obj == null) throw new Exception("Object not found.");
 
-                var type = obj.GetRuntimeType();
-                var typedObj = obj.CastToRuntimeType();
-                
-                var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (field != null) return field.GetValue(typedObj)?.ToString() ?? "null";
+                string[] parts = name.Split('.');
+                object currentObj = obj;
 
-                var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (prop != null) return prop.GetValue(typedObj)?.ToString() ?? "null";
+                foreach (var part in parts)
+                {
+                    if (currentObj == null) throw new Exception($"Path '{name}' is broken at '{part}' because it is null.");
 
-                throw new Exception($"Field or property '{name}' not found on type {type.FullName}");
+                    Type type;
+                    object target;
+
+                    if (currentObj is UnityEngine.Object uo)
+                    {
+                        type = uo.GetRuntimeType();
+                        target = uo.CastToRuntimeType();
+                    }
+                    else
+                    {
+                        type = currentObj.GetType();
+                        target = currentObj;
+                    }
+
+                    currentObj = GetFieldValue(target, type, part);
+                }
+
+                return currentObj.ToMcpValue();
             });
+        }
+
+        private static object GetFieldValue(object obj, Type type, string name)
+        {
+            var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (field != null) return field.GetValue(obj);
+
+            var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (prop != null) return prop.GetValue(obj);
+
+            throw new Exception($"Field or property '{name}' not found on type {type.FullName}");
         }
     }
 }

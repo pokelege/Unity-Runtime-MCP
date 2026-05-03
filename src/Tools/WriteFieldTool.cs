@@ -48,25 +48,82 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
                 if (obj == null) throw new Exception("Object not found.");
 
-                var type = obj.GetRuntimeType();
-                var typedObj = obj.CastToRuntimeType();
-                
-                var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (field != null)
+                string[] parts = name.Split('.');
+                object currentObj = obj;
+
+                // Traverse to the second to last part
+                for (int i = 0; i < parts.Length - 1; i++)
                 {
-                    field.SetValue(typedObj, ConvertValue(valueStr, field.FieldType));
-                    return "OK";
+                    string part = parts[i];
+                    if (currentObj == null) throw new Exception($"Path '{name}' is broken at '{part}' because it is null.");
+
+                    Type type;
+                    object target;
+
+                    if (currentObj is UnityEngine.Object uo)
+                    {
+                        type = uo.GetRuntimeType();
+                        target = uo.CastToRuntimeType();
+                    }
+                    else
+                    {
+                        type = currentObj.GetType();
+                        target = currentObj;
+                    }
+
+                    currentObj = GetFieldValue(target, type, part);
                 }
 
-                var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (prop != null)
+                if (currentObj == null) throw new Exception($"Path '{name}' is broken before the final field '{parts.Last()}' because the parent is null.");
+
+                string finalName = parts.Last();
+                Type finalType;
+                object finalTarget;
+
+                if (currentObj is UnityEngine.Object finalUo)
                 {
-                    prop.SetValue(typedObj, ConvertValue(valueStr, prop.PropertyType));
-                    return "OK";
+                    finalType = finalUo.GetRuntimeType();
+                    finalTarget = finalUo.CastToRuntimeType();
+                }
+                else
+                {
+                    finalType = currentObj.GetType();
+                    finalTarget = currentObj;
                 }
 
-                throw new Exception($"Field or property '{name}' not found on type {type.FullName}");
+                SetFieldValue(finalTarget, finalType, finalName, valueStr);
+                return "OK";
             });
+        }
+
+        private static object GetFieldValue(object obj, Type type, string name)
+        {
+            var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (field != null) return field.GetValue(obj);
+
+            var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (prop != null) return prop.GetValue(obj);
+
+            throw new Exception($"Field or property '{name}' not found on type {type.FullName}");
+        }
+
+        private static void SetFieldValue(object obj, Type type, string name, string value)
+        {
+            var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (field != null)
+            {
+                field.SetValue(obj, ConvertValue(value, field.FieldType));
+                return;
+            }
+
+            var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (prop != null)
+            {
+                prop.SetValue(obj, ConvertValue(value, prop.PropertyType));
+                return;
+            }
+
+            throw new Exception($"Field or property '{name}' not found on type {type.FullName}");
         }
 
         private static object ConvertValue(string value, Type targetType)
@@ -75,7 +132,14 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             if (targetType == typeof(float)) return float.Parse(value);
             if (targetType == typeof(bool)) return bool.Parse(value);
             if (targetType == typeof(string)) return value;
-            // Add more types as needed or use a generic converter
+
+            if (targetType == typeof(Type) || targetType.FullName == "Il2CppSystem.Type")
+            {
+                var resolvedType = UnityObjectExtensions.ResolveTypeForMethod(value, targetType);
+                if (resolvedType == null) throw new Exception($"Could not resolve type: {value}");
+                return resolvedType;
+            }
+
             return Convert.ChangeType(value, targetType);
         }
     }

@@ -78,7 +78,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 }
 
                 var result = method.Invoke(typedObj, convertedArgs);
-                return result?.ToString() ?? "null";
+                return result.ToMcpValue();
             });
         }
 
@@ -88,6 +88,14 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             if (targetType == typeof(float)) return float.Parse(value);
             if (targetType == typeof(bool)) return bool.Parse(value);
             if (targetType == typeof(string)) return value;
+            
+            if (targetType == typeof(Type) || targetType.FullName == "Il2CppSystem.Type")
+            {
+                var resolvedType = UnityObjectExtensions.ResolveTypeForMethod(value, targetType);
+                if (resolvedType == null) throw new Exception($"Could not resolve type: {value}");
+                return resolvedType;
+            }
+
             return Convert.ChangeType(value, targetType);
         }
     }

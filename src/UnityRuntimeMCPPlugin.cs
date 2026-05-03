@@ -51,6 +51,7 @@ namespace PokeLege.UnityRuntimeMCP
             ReadFieldTool.Register();
             WriteFieldTool.Register();
             InvokeMethodTool.Register();
+            GetHierarchyTool.Register();
             TakeScreenshotTool.Register();
 
             Log.LogInfo($"UnityRuntimeMCP initialized on port {PluginConfig.Port.Value}");

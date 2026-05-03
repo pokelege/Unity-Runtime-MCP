@@ -29,6 +29,11 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                         {
                             type = "integer",
                             description = "The unique instance ID of the Unity object to inspect."
+                        },
+                        include_methods = new
+                        {
+                            type = "boolean",
+                            description = "Whether to include the methods list in the output (defaults to true)."
                         }
                     },
                     required = new[] { "instance_id" }
@@ -42,6 +47,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 throw new Exception("Missing parameter: instance_id");
 
             int instanceId = idProp.GetInt32();
+            bool includeMethods = !parameters.TryGetProperty("include_methods", out var methodsProp) || methodsProp.GetBoolean();
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
@@ -57,8 +63,12 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var properties = systemType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                     .Select(p => new { name = p.Name, type = p.PropertyType.FullName, value = SafeGetPropValue(p, typedObj) });
 
-                var methods = systemType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                    .Select(m => new { name = m.Name, return_type = m.ReturnType.FullName, parameters = m.GetParameters().Select(p => new { p.Name, p.ParameterType.FullName }) });
+                object methods = null;
+                if (includeMethods)
+                {
+                    methods = systemType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                        .Select(m => new { name = m.Name, return_type = m.ReturnType.FullName, parameters = m.GetParameters().Select(p => new { p.Name, p.ParameterType.FullName }) });
+                }
 
                 return new
                 {
@@ -72,15 +82,15 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             });
         }
 
-        private static string SafeGetValue(FieldInfo f, object obj)
+        private static object SafeGetValue(FieldInfo f, object obj)
         {
-            try { return f.GetValue(obj)?.ToString() ?? "null"; }
+            try { return f.GetValue(obj).ToMcpValue(); }
             catch { return "<error>"; }
         }
 
-        private static string SafeGetPropValue(PropertyInfo p, object obj)
+        private static object SafeGetPropValue(PropertyInfo p, object obj)
         {
-            try { return p.GetValue(obj)?.ToString() ?? "null"; }
+            try { return p.GetValue(obj).ToMcpValue(); }
             catch { return "<error>"; }
         }
     }

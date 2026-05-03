@@ -18,10 +18,11 @@ The server registers the following MCP tools:
 | Tool | Description |
 | :--- | :--- |
 | `find_objects` | Finds active GameObjects by class name. |
-| `inspect_object` | Returns a detailed view of object members by Instance ID. |
-| `read_field` | Reads the value of a specific field or property. |
-| `write_field` | Writes a value to a field or property with type conversion. |
-| `invoke_method` | Executes a method on an object with parameter support. |
+| `get_hierarchy` | Returns immediate parent and children IDs for an object. |
+| `inspect_object` | Detailed member view. Supports `include_methods` flag to reduce output. |
+| `read_field` | Reads a value. Supports dot-notation for nested paths (e.g., `transform.parent.name`). |
+| `write_field` | Writes a value. Supports nested paths and automatic `System.Type` resolution. |
+| `invoke_method` | Executes a method. Supports automatic `System.Type` to `Il2CppSystem.Type` conversion. |
 | `take_screenshot` | Captures the game screen as a Base64 PNG. |
 
 ## Installation
