@@ -17,13 +17,19 @@ The server registers the following MCP tools:
 
 | Tool | Description |
 | :--- | :--- |
-| `find_objects` | Finds active GameObjects by class name. |
-| `get_hierarchy` | Returns immediate parent and children IDs for an object. |
-| `inspect_object` | Detailed member view. Supports `include_methods` flag to reduce output. |
-| `read_field` | Reads a value. Supports dot-notation for nested paths (e.g., `transform.parent.name`). |
-| `write_field` | Writes a value. Supports nested paths and automatic `System.Type` resolution. |
-| `invoke_method` | Executes a method. Supports automatic `System.Type` to `Il2CppSystem.Type` conversion. |
+| `find_objects` | Finds active GameObjects by class name. Returns identity objects with `instance_id`. |
+| `get_hierarchy` | Returns immediate parent and children IDs for an object. Caches results for stability. |
+| `inspect_object` | Detailed member view. `include_methods` defaults to `false` for efficiency. |
+| `read_field` | Reads a value. Supports dot-notation paths (e.g., `transform.parent.name`). Returns `null` for broken paths. |
+| `write_field` | Writes a value. Supports nested paths and automatic type resolution. |
+| `invoke_method` | Executes a method. Supports generic methods (e.g. `GetComponent<T>`) via `type_args`. |
 | `take_screenshot` | Captures the game screen as a Base64 PNG. |
+
+## Feature Highlights
+
+- **Identity Mapping & Cache**: The server maintains a weak-reference cache of all encountered Unity Objects. This ensures that `instance_id` references remain stable across frames, even for objects that are inactive or difficult to locate via standard searches.
+- **Robust Path Traversal**: Dot-notation support in `read_field` and `write_field` allows for deep inspection in a single call. The system handles null segments gracefully, returning standard JSON `null` instead of errors.
+- **Generic Method Resolution**: Agents can invoke generic Unity methods by providing `type_args` (a list of full type names), enabling advanced operations like `GetComponent<TextMeshProUGUI>()`.
 
 ## Installation
 

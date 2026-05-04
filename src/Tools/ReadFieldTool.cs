@@ -18,14 +18,14 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "read_field",
                 Handle,
-                "Reads the value of a field or property from a specific Unity object.",
+                "Reads the value of a field or property. Supports dot-notation for nested access (e.g. 'transform.parent.name').",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         instance_id = new { type = "integer", description = "Instance ID of the object." },
-                        name = new { type = "string", description = "Name of the field or property to read." }
+                        name = new { type = "string", description = "Name of the field or property to read. Can be a nested path using dot notation." }
                     },
                     required = new[] { "instance_id", "name" }
                 }
@@ -42,21 +42,22 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
-                if (obj == null) throw new Exception("Object not found.");
+                var obj = UnityObjectExtensions.FindObjectById(instanceId);
+                if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
                 string[] parts = name.Split('.');
                 object currentObj = obj;
 
                 foreach (var part in parts)
                 {
-                    if (currentObj == null) throw new Exception($"Path '{name}' is broken at '{part}' because it is null.");
+                    if (currentObj == null) return null;
 
                     Type type;
                     object target;
 
                     if (currentObj is UnityEngine.Object uo)
                     {
+                        if (uo == null) return null; // Handle destroyed objects
                         type = uo.GetRuntimeType();
                         target = uo.CastToRuntimeType();
                     }

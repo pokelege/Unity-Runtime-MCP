@@ -19,19 +19,25 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "invoke_method",
                 Handle,
-                "Invokes a method on a specific Unity object.",
+                "Invokes a method on a specific Unity object. Supports generic methods (e.g. GetComponent<T>) via type_args.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        instance_id = new { type = "integer", description = "Instance ID of the object." },
+                        instance_id = new { type = "integer", description = "Instance ID of the object to call the method on." },
                         name = new { type = "string", description = "Name of the method to invoke." },
                         args = new
                         {
                             type = "array",
                             items = new { type = "string" },
-                            description = "Arguments for the method (as strings, will be converted to parameter types)."
+                            description = "Optional: List of arguments for the method (as strings, will be converted to parameter types). Pass empty array if no arguments."
+                        },
+                        type_args = new
+                        {
+                            type = "array",
+                            items = new { type = "string" },
+                            description = "Optional: List of type names for generic methods (e.g. ['UnityEngine.Camera'] for GetComponent<Camera>())."
                         }
                     },
                     required = new[] { "instance_id", "name" }
@@ -53,10 +59,16 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 foreach (var arg in argsProp.EnumerateArray()) args.Add(arg.GetString());
             }
 
+            List<string> typeArgs = new List<string>();
+            if (parameters.TryGetProperty("type_args", out var typeArgsProp))
+            {
+                foreach (var arg in typeArgsProp.EnumerateArray()) typeArgs.Add(arg.GetString());
+            }
+
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
-                if (obj == null) throw new Exception("Object not found.");
+                var obj = UnityObjectExtensions.FindObjectById(instanceId);
+                if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
                 var type = obj.GetRuntimeType();
                 var typedObj = obj.CastToRuntimeType();
@@ -64,11 +76,24 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var methods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                     .Where(m => m.Name == methodName).ToList();
 
-                if (methods.Count == 0) throw new Exception($"Method '{methodName}' not found.");
+                if (methods.Count == 0) throw new Exception($"Method '{methodName}' not found on type {type.FullName}.");
 
-                // Match parameters (simple version: match by count)
-                var method = methods.FirstOrDefault(m => m.GetParameters().Length == args.Count);
-                if (method == null) throw new Exception($"Method '{methodName}' with {args.Count} parameters not found.");
+                // Match parameters and generic arguments
+                var method = methods.FirstOrDefault(m => 
+                    m.GetParameters().Length == args.Count && 
+                    m.GetGenericArguments().Length == typeArgs.Count);
+
+                if (method == null) 
+                    throw new Exception($"Method '{methodName}' with {args.Count} parameters and {typeArgs.Count} type arguments not found.");
+
+                if (typeArgs.Count > 0)
+                {
+                    var resolvedTypeArgs = typeArgs.Select(t => UnityObjectExtensions.ResolveType(t)).ToArray();
+                    if (resolvedTypeArgs.Any(t => t == null))
+                        throw new Exception($"Could not resolve all type arguments: {string.Join(", ", typeArgs)}");
+                    
+                    method = method.MakeGenericMethod(resolvedTypeArgs);
+                }
 
                 var methodParams = method.GetParameters();
                 object[] convertedArgs = new object[args.Count];

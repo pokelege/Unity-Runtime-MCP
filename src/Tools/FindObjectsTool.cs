@@ -43,27 +43,13 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var type = Type.GetType(className);
-                if (type == null)
-                {
-                    // Try to find in other assemblies if simple GetType fails
-                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                    {
-                        type = asm.GetType(className);
-                        if (type != null) break;
-                    }
-                }
-
+                var type = UnityObjectExtensions.ResolveType(className);
                 if (type == null) throw new Exception($"Type not found: {className}");
 
                 var il2cppType = Il2CppType.From(type);
                 var objects = GameObject.FindObjectsOfType(il2cppType);
 
-                return objects.Select(obj => new
-                {
-                    instance_id = obj.GetInstanceID(),
-                    name = obj.name
-                }).ToList();
+                return objects.Select(obj => obj.ToMcpValue()).ToList();
             });
         }
     }

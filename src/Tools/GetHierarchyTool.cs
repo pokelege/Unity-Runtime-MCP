@@ -40,7 +40,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
+                var obj = UnityObjectExtensions.FindObjectById(instanceId);
                 if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
                 var typedObj = obj.CastToRuntimeType();
@@ -62,24 +62,14 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 for (int i = 0; i < transform.childCount; i++)
                 {
                     var child = transform.GetChild(i);
-                    children.Add(new
-                    {
-                        instance_id = child.gameObject.GetInstanceID(),
-                        name = child.name,
-                        type = "UnityEngine.GameObject"
-                    });
+                    children.Add(child.gameObject.ToMcpValue());
                 }
 
                 return new
                 {
                     instance_id = transform.gameObject.GetInstanceID(),
                     name = transform.gameObject.name,
-                    parent = parent != null ? new
-                    {
-                        instance_id = parent.gameObject.GetInstanceID(),
-                        name = parent.name,
-                        type = "UnityEngine.GameObject"
-                    } : null,
+                    parent = parent?.gameObject.ToMcpValue(),
                     children = children
                 };
             });

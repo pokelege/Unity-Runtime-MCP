@@ -19,7 +19,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "inspect_object",
                 Handle,
-                "Inspects a specific Unity object by its instance ID, returning its fields, properties, and methods.",
+                "Inspects a specific Unity object by its instance ID, returning its fields, properties, and optionally methods.",
                 new
                 {
                     type = "object",
@@ -33,7 +33,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                         include_methods = new
                         {
                             type = "boolean",
-                            description = "Whether to include the methods list in the output (defaults to true)."
+                            description = "Optional: Whether to include the methods list in the output (defaults to false to save context space)."
                         }
                     },
                     required = new[] { "instance_id" }
@@ -47,11 +47,11 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 throw new Exception("Missing parameter: instance_id");
 
             int instanceId = idProp.GetInt32();
-            bool includeMethods = !parameters.TryGetProperty("include_methods", out var methodsProp) || methodsProp.GetBoolean();
+            bool includeMethods = parameters.TryGetProperty("include_methods", out var methodsProp) && methodsProp.GetBoolean();
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
+                var obj = UnityObjectExtensions.FindObjectById(instanceId);
                 if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
                 var systemType = obj.GetRuntimeType();

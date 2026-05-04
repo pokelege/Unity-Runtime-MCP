@@ -18,14 +18,14 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "write_field",
                 Handle,
-                "Writes a value to a field or property of a specific Unity object.",
+                "Writes a value to a field or property. Supports dot-notation for nested access (e.g. 'transform.position.x').",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         instance_id = new { type = "integer", description = "Instance ID of the object." },
-                        name = new { type = "string", description = "Name of the field or property to write." },
+                        name = new { type = "string", description = "Name of the field or property to write. Can be a nested path using dot notation." },
                         value = new { type = "string", description = "Value to write (as string, will be converted to the field's type)." }
                     },
                     required = new[] { "instance_id", "name", "value" }
@@ -45,8 +45,8 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = Object.FindObjectsOfType<Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
-                if (obj == null) throw new Exception("Object not found.");
+                var obj = UnityObjectExtensions.FindObjectById(instanceId);
+                if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
                 string[] parts = name.Split('.');
                 object currentObj = obj;
@@ -62,6 +62,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
                     if (currentObj is UnityEngine.Object uo)
                     {
+                        if (uo == null) throw new Exception($"Path '{name}' is broken at '{part}' because the Unity object is destroyed.");
                         type = uo.GetRuntimeType();
                         target = uo.CastToRuntimeType();
                     }
