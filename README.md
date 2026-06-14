@@ -4,10 +4,11 @@ UnityRuntimeMCP is an implementation of the Model Context Protocol (MCP) as a Be
 
 ## Features
 
-- **Live Inspection**: Discovery and inspection of Unity GameObject and Component instances in the active scene.
-- **Deep Reflection**: Access to fields, properties, and methods on derived types in IL2CPP environments.
-- **Runtime Modification**: Reading and writing values to object fields and properties.
-- **Visual Feedback**: Capture of game view screenshots in Base64 PNG format.
+- **Live Inspection & Object Caching**: Discovery and inspection of Unity `GameObject`/`Component` instances, as well as non-Unity reference types (classes and arrays).
+- **Stable Identity Mapping**: Maintains a weak-reference cache of all encountered Unity Objects and non-Unity reference types. Non-Unity objects are assigned dynamic IDs starting at `1,000,000,000` to guarantee reference stability across frames.
+- **Deep Reflection & Serialization**: Access to fields, properties, and methods on derived types in IL2CPP environments. Automatically serializes collections and arrays up to 20 elements, caching nested non-Unity objects for further inspection.
+- **Runtime Modification**: Reading and writing values to object fields and properties with support for nested dot-notation paths.
+- **Visual Feedback**: Capture of game view screenshots in Base64 PNG format or saved to a cross-platform temporary directory.
 - **Thread Safety**: Automatic dispatching of Unity API calls to the main thread.
 - **Lifecycle Management**: Protection against scene cleanup and IL2CPP-specific object destruction.
 
@@ -17,19 +18,20 @@ The server registers the following MCP tools:
 
 | Tool | Description |
 | :--- | :--- |
-| `find_objects` | Finds active GameObjects by class name. Returns identity objects with `instance_id`. |
-| `get_hierarchy` | Returns immediate parent and children IDs for an object. Caches results for stability. |
-| `inspect_object` | Detailed member view. `include_methods` defaults to `false` for efficiency. |
+| `find_objects` | Finds active GameObjects by class name. Returns identity objects with `instance_id`. Returns an empty list if the class is missing. |
+| `get_hierarchy` | Returns immediate parent and children IDs for Unity GameObjects/Components. Restricted to Unity objects. |
+| `inspect_object` | Detailed member view. Supports Unity and cached non-Unity objects. `include_methods` defaults to `false` for efficiency. |
 | `read_field` | Reads a value. Supports dot-notation paths (e.g., `transform.parent.name`). Returns `null` for broken paths. |
-| `write_field` | Writes a value. Supports nested paths and automatic type resolution. |
-| `invoke_method` | Executes a method. Supports generic methods (e.g. `GetComponent<T>`) via `type_args`. |
-| `take_screenshot` | Captures the game screen as a Base64 PNG. |
+| `write_field` | Writes a value. Supports nested paths. Suggests preferring property setters over private backing fields to ensure side-effects execute. |
+| `invoke_method` | Executes a method on Unity or cached non-Unity objects. Supports generic methods via `type_args`. |
+| `take_screenshot` | Captures the game screen. Supports `scale` (0.1 to 1.0, default 0.5) and `save_to_file` (boolean). Uses a stable custom pipeline to avoid IL2CPP native JPG crash. |
 
 ## Feature Highlights
 
-- **Identity Mapping & Cache**: The server maintains a weak-reference cache of all encountered Unity Objects. This ensures that `instance_id` references remain stable across frames, even for objects that are inactive or difficult to locate via standard searches.
+- **Identity Mapping & Cache**: The server maintains a weak-reference cache of all encountered Unity Objects and non-Unity reference types (assigned dynamic IDs >= 1,000,000,000). This ensures that `instance_id` references remain stable across frames, even for objects that are inactive or difficult to locate via standard searches.
 - **Robust Path Traversal**: Dot-notation support in `read_field` and `write_field` allows for deep inspection in a single call. The system handles null segments gracefully, returning standard JSON `null` instead of errors.
 - **Generic Method Resolution**: Agents can invoke generic Unity methods by providing `type_args` (a list of full type names), enabling advanced operations like `GetComponent<TextMeshProUGUI>()`.
+- **Custom Screenshot Engine**: Avoids native IL2CPP `AccessViolationException` crashes by bypassing the native `EncodeToJPG` delegate. Instead, it blits the native screen buffer to a scaled `RenderTexture` and encodes it to a PNG. Scaled output reduces payload size, and setting `save_to_file` saves directly to the system temp directory (`C:\Users\Public\UnityRuntimeMCP_Temp` on Windows, `/tmp/UnityRuntimeMCP_Temp` on macOS/Linux).
 
 ## Installation
 
@@ -41,6 +43,29 @@ The server registers the following MCP tools:
 Configuration is managed via `BepInEx/config/me.pokelege.unityruntimemcp.cfg`:
 - `Port`: Server listening port (Default: 3000).
 - `Host`: Server binding address (Default: 127.0.0.1).
+
+## Building
+
+If you are not using a pre-built release, you can build the plugin from source:
+
+### Prerequisites
+- [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0)
+- Unity game assemblies placed in the `libs/` directory (these are already included in the repository for reference).
+
+### Build Commands
+To build the project, run one of the following commands in the project root:
+
+- **Debug Build**:
+  ```powershell
+  dotnet build
+  ```
+  The compiled DLL will be located at `bin/Debug/net6.0/UnityRuntimeMCP.dll`.
+
+- **Release Build**:
+  ```powershell
+  dotnet build -c Release
+  ```
+  The compiled DLL will be located at `bin/Release/net6.0/UnityRuntimeMCP.dll`.
 
 ## Connection
 
