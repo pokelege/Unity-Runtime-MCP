@@ -9,7 +9,14 @@ namespace PokeLege.UnityRuntimeMCP
 {
     public static class UnityObjectCache
     {
-        private static readonly System.Collections.Generic.Dictionary<int, WeakReference<UnityEngine.Object>> _cache = new();
+        private static readonly System.Collections.Generic.Dictionary<int, WeakReference<object>> _cache = new();
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, BoxedId> _dynamicIds = new();
+        private static int _nextDynamicId = 1000000000;
+
+        private class BoxedId
+        {
+            public int Id { get; set; }
+        }
 
         public static void Register(UnityEngine.Object obj)
         {
@@ -17,11 +24,34 @@ namespace PokeLege.UnityRuntimeMCP
             int id = obj.GetInstanceID();
             lock (_cache)
             {
-                _cache[id] = new WeakReference<UnityEngine.Object>(obj);
+                _cache[id] = new WeakReference<object>(obj);
             }
         }
 
-        public static UnityEngine.Object Get(int id)
+        public static int RegisterNonUnityObject(object obj)
+        {
+            if (obj == null) return 0;
+
+            lock (_dynamicIds)
+            {
+                if (_dynamicIds.TryGetValue(obj, out var boxed))
+                {
+                    return boxed.Id;
+                }
+
+                int id = System.Threading.Interlocked.Increment(ref _nextDynamicId);
+                var newBoxed = new BoxedId { Id = id };
+                _dynamicIds.Add(obj, newBoxed);
+
+                lock (_cache)
+                {
+                    _cache[id] = new WeakReference<object>(obj);
+                }
+                return id;
+            }
+        }
+
+        public static object Get(int id)
         {
             lock (_cache)
             {
@@ -37,21 +67,25 @@ namespace PokeLege.UnityRuntimeMCP
     public static class UnityObjectExtensions
     {
         /// <summary>
-        /// Finds a Unity object by its instance ID, using a weak-reference cache for stability.
-        /// Falls back to FindObjectsOfType if not in cache.
+        /// Finds a Unity or cached object by its instance ID.
+        /// Falls back to FindObjectsOfType if not in cache (only for standard Unity object IDs).
         /// </summary>
-        public static UnityEngine.Object FindObjectById(int instanceId)
+        public static object FindObjectById(int instanceId)
         {
             var cached = UnityObjectCache.Get(instanceId);
             if (cached != null) return cached;
 
             // Fallback to searching all objects
-            var obj = UnityEngine.Object.FindObjectsOfType<UnityEngine.Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
-            if (obj != null)
+            if (instanceId < 1000000000)
             {
-                UnityObjectCache.Register(obj);
+                var obj = UnityEngine.Object.FindObjectsOfType<UnityEngine.Object>().FirstOrDefault(o => o.GetInstanceID() == instanceId);
+                if (obj != null)
+                {
+                    UnityObjectCache.Register(obj);
+                    return obj;
+                }
             }
-            return obj;
+            return null;
         }
 
         /// <summary>
@@ -185,7 +219,33 @@ namespace PokeLege.UnityRuntimeMCP
             var type = value.GetType();
             if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal)) return value;
 
-            // For other types, return ToString() to prevent serialization errors
+            // Handle collections/arrays (excluding string)
+            if (value is System.Collections.IEnumerable enumerable)
+            {
+                var list = new System.Collections.Generic.List<object>();
+                int count = 0;
+                foreach (var item in enumerable)
+                {
+                    if (count >= 20) break;
+                    list.Add(item == null ? null : item.ToMcpValue());
+                    count++;
+                }
+                return list;
+            }
+
+            // Handle other reference types (classes)
+            if (type.IsClass)
+            {
+                int id = UnityObjectCache.RegisterNonUnityObject(value);
+                return new
+                {
+                    instance_id = id,
+                    name = type.Name,
+                    type = type.FullName
+                };
+            }
+
+            // For other types (e.g. structs like Vector3), return ToString() to prevent serialization errors
             return value.ToString();
         }
     }

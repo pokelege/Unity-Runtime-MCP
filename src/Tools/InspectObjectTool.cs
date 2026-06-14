@@ -54,8 +54,22 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var obj = UnityObjectExtensions.FindObjectById(instanceId);
                 if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
-                var systemType = obj.GetRuntimeType();
-                var typedObj = obj.CastToRuntimeType();
+                Type systemType;
+                object typedObj;
+                string objName;
+
+                if (obj is UnityEngine.Object unityObj)
+                {
+                    systemType = unityObj.GetRuntimeType();
+                    typedObj = unityObj.CastToRuntimeType();
+                    objName = unityObj.name;
+                }
+                else
+                {
+                    systemType = obj.GetType();
+                    typedObj = obj;
+                    objName = systemType.Name;
+                }
 
                 var fields = systemType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                     .Select(f => new { name = f.Name, type = f.FieldType.FullName, value = SafeGetValue(f, typedObj) });
@@ -73,7 +87,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 return new
                 {
                     instance_id = instanceId,
-                    name = obj.name,
+                    name = objName,
                     type = systemType.FullName,
                     fields,
                     properties,

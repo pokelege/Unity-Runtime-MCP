@@ -25,7 +25,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                     properties = new
                     {
                         instance_id = new { type = "integer", description = "Instance ID of the object." },
-                        name = new { type = "string", description = "Name of the field or property to write. Can be a nested path using dot notation." },
+                        name = new { type = "string", description = "Name of the field or property to write. Can be a nested path using dot notation. Suggestion: prefer property setters over private backing fields to ensure side-effects (e.g. layout/graphic updates) execute, though direct field writes are acceptable if bypassing setters is explicitly intended." },
                         value = new { type = "string", description = "Value to write (as string, will be converted to the field's type)." }
                     },
                     required = new[] { "instance_id", "name", "value" }

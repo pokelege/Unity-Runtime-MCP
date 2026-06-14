@@ -70,8 +70,19 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var obj = UnityObjectExtensions.FindObjectById(instanceId);
                 if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
-                var type = obj.GetRuntimeType();
-                var typedObj = obj.CastToRuntimeType();
+                Type type;
+                object typedObj;
+
+                if (obj is UnityEngine.Object unityObj)
+                {
+                    type = unityObj.GetRuntimeType();
+                    typedObj = unityObj.CastToRuntimeType();
+                }
+                else
+                {
+                    type = obj.GetType();
+                    typedObj = obj;
+                }
                 
                 var methods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                     .Where(m => m.Name == methodName).ToList();

@@ -44,7 +44,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
                 var type = UnityObjectExtensions.ResolveType(className);
-                if (type == null) throw new Exception($"Type not found: {className}");
+                if (type == null) return new System.Collections.Generic.List<object>();
 
                 var il2cppType = Il2CppType.From(type);
                 var objects = GameObject.FindObjectsOfType(il2cppType);

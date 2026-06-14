@@ -43,7 +43,10 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                 var obj = UnityObjectExtensions.FindObjectById(instanceId);
                 if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
-                var typedObj = obj.CastToRuntimeType();
+                if (!(obj is UnityEngine.Object unityObj))
+                    throw new Exception($"Object with ID {instanceId} is not a Unity Object.");
+
+                var typedObj = unityObj.CastToRuntimeType();
                 Transform transform = null;
 
                 if (typedObj is GameObject gameObject)
