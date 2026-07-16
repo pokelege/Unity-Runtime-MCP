@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unity Runtime Explorer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-logo">
+            <span class="logo-accent">Unity</span> Runtime Explorer
+        </div>
+        <div class="header-actions">
+            <button id="theme-toggle" class="btn-icon" title="Toggle Theme">
+                <img id="theme-icon" src="assets/moon.svg" alt="Theme Toggle" width="20" height="20">
+            </button>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- Sidebar: Hierarchy and Search -->
+        <aside class="app-sidebar">
+            <div class="sidebar-tabs">
+                <button id="tab-hierarchy" class="tab-btn active">Hierarchy</button>
+                <button id="tab-search" class="tab-btn">Search Type</button>
+            </div>
+            
+            <div class="sidebar-content">
+                <div id="panel-hierarchy" class="tab-panel active">
+                    <div class="panel-header-actions">
+                        <button id="btn-refresh-hierarchy" class="btn btn-secondary btn-sm">
+                            <img src="assets/refresh.svg" alt="Refresh" width="14" height="14" class="btn-icon-img">
+                            Reload Scenes
+                        </button>
+                    </div>
+                    <div id="hierarchy-tree" class="tree-container">
+                        <!-- Hierarchy tree rendered dynamically -->
+                        <div class="loading">Loading scenes...</div>
+                    </div>
+                </div>
+
+                <div id="panel-search" class="tab-panel">
+                    <div class="search-mode-selector" style="display:flex; border-bottom:1px solid var(--border-color); padding: 8px 16px; gap: 12px; background-color: rgba(0,0,0,0.02)">
+                        <label class="radio-label" style="font-size:12px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:4px">
+                            <input type="radio" name="search-mode" value="instances" checked> Instances
+                        </label>
+                        <label class="radio-label" style="font-size:12px; font-weight:500; cursor:pointer; display:inline-flex; align-items:center; gap:4px">
+                            <input type="radio" name="search-mode" value="classes"> Classes
+                        </label>
+                    </div>
+                    <div class="search-form" style="display:flex; flex-direction:column; gap:8px">
+                        <div class="input-group">
+                            <input type="text" id="input-search-class" placeholder="Search..." class="form-control">
+                            <button id="btn-run-search" class="btn btn-primary">
+                                <img src="assets/search.svg" alt="Search" width="14" height="14" class="btn-icon-img">
+                                Find
+                            </button>
+                        </div>
+                        <div id="search-option-assets-container" class="search-options" style="margin-top: 2px">
+                            <label class="checkbox-container" style="font-size:12px; color:var(--text-secondary)">
+                                <input type="checkbox" id="chk-search-include-assets">
+                                <span class="checkbox-checkmark"></span>
+                                Include Assets & Inactive
+                            </label>
+                        </div>
+                    </div>
+                    <div id="search-results" class="results-container">
+                        <div class="empty-state">Select a mode and enter query.</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center Panel: Object & Component Inspector -->
+        <main class="app-main">
+            <div id="inspector-empty" class="empty-state-container">
+                <div class="empty-state-box">
+                    <div class="empty-state-icon">🔍</div>
+                    <h3>No Object Selected</h3>
+                    <p>Select a GameObject from the hierarchy tree or search list to inspect its components, fields, and properties.</p>
+                </div>
+            </div>
+
+            <div id="inspector-content" class="inspector-container hidden">
+                <div class="inspector-header">
+                    <div class="object-info">
+                        <h2 id="inspect-obj-name" class="object-title">GameObject Name</h2>
+                        <div class="object-meta">
+                            <span class="badge badge-id">ID: <span id="inspect-obj-id">0</span></span>
+                            <span id="inspect-obj-type" class="badge badge-type">UnityEngine.GameObject</span>
+                        </div>
+                    </div>
+                    <div class="object-actions">
+                        <label class="switch-container">
+                            <input type="checkbox" id="inspect-obj-active">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Active</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="inspector-body">
+                    <div class="inspector-section-title">Components</div>
+                    <div id="components-list" class="components-accordion-container">
+                        <!-- Components loaded here -->
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel: Game View Live Preview -->
+        <aside class="app-gameview">
+            <div class="gameview-header">
+                <h3>Live Game Preview</h3>
+                <button id="btn-refresh-screenshot" class="btn-icon" title="Refresh Screenshot">
+                    <img src="assets/refresh.svg" alt="Refresh" width="18" height="18">
+                </button>
+            </div>
+            <div class="gameview-preview">
+                <div id="screenshot-placeholder" class="screenshot-loading">
+                    <div>No screenshot captured</div>
+                </div>
+                <img id="gameview-img" class="hidden" alt="Unity Game Preview">
+            </div>
+            <div class="gameview-controls">
+                <div class="control-row">
+                    <label for="slider-scale">Scale: <span id="scale-val">0.5</span></label>
+                    <input type="range" id="slider-scale" min="0.1" max="1.0" step="0.05" value="0.5" class="form-slider">
+                </div>
+                <div class="control-row">
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="chk-auto-refresh">
+                        <span class="checkbox-checkmark"></span>
+                        Auto Refresh
+                    </label>
+                    <div class="refresh-rate-group">
+                        <select id="select-refresh-rate" class="form-control form-control-sm">
+                            <option value="1000">1s</option>
+                            <option value="2000" selected>2s</option>
+                            <option value="5000">5s</option>
+                            <option value="10000">10s</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Invoke Method Modal -->
+    <div id="modal-invoke" class="modal-overlay hidden">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="modal-title">Invoke Method</h3>
+                <button id="btn-close-modal" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="method-signature" id="modal-method-sig">method_name(param1, param2)</div>
+                <div id="modal-params-fields" class="modal-params-container">
+                    <!-- Dynamic param fields input -->
+                </div>
+                <div id="modal-invoke-result" class="invoke-result-box hidden">
+                    <strong>Result:</strong>
+                    <pre id="modal-result-text"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-modal-cancel" class="btn btn-secondary">Cancel</button>
+                <button id="btn-modal-invoke" class="btn btn-primary">Invoke</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

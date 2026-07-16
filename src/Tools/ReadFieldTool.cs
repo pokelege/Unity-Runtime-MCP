@@ -18,63 +18,119 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "read_field",
                 Handle,
-                "Reads the value of a field or property. Supports dot-notation for nested access (e.g. 'transform.parent.name').",
+                "Reads the value of a field or property. Supports dot-notation for nested access (e.g. 'transform.parent.name'). Can read static members by omitting instance_id and specifying class_name.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        instance_id = new { type = "integer", description = "Instance ID of the object." },
+                        instance_id = new { type = "integer", description = "Optional: Instance ID of the object. Omit if reading a static field/property." },
+                        class_name = new { type = "string", description = "Optional: Full class/type name. Required if instance_id is omitted (for static fields/properties)." },
                         name = new { type = "string", description = "Name of the field or property to read. Can be a nested path using dot notation." }
                     },
-                    required = new[] { "instance_id", "name" }
+                    required = new[] { "name" }
                 }
             );
         }
 
         private static async Task<object> Handle(JsonElement parameters)
         {
-            if (!parameters.TryGetProperty("instance_id", out var idProp)) throw new Exception("Missing parameter: instance_id");
             if (!parameters.TryGetProperty("name", out var nameProp)) throw new Exception("Missing parameter: name");
-
-            int instanceId = idProp.GetInt32();
             string name = nameProp.GetString();
+
+            int instanceId = 0;
+            if (parameters.TryGetProperty("instance_id", out var idProp) && idProp.ValueKind == JsonValueKind.Number)
+            {
+                instanceId = idProp.GetInt32();
+            }
+
+            string className = null;
+            if (parameters.TryGetProperty("class_name", out var classNameProp) && classNameProp.ValueKind == JsonValueKind.String)
+            {
+                className = classNameProp.GetString();
+            }
+
+            if (instanceId == 0 && string.IsNullOrEmpty(className))
+            {
+                throw new Exception("Must provide either instance_id or class_name");
+            }
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = UnityObjectExtensions.FindObjectById(instanceId);
-                if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
+                Type targetType = null;
+                object targetObj = null;
 
-                string[] parts = name.Split('.');
-                object currentObj = obj;
-
-                foreach (var part in parts)
+                if (instanceId != 0)
                 {
-                    if (currentObj == null) return null;
+                    var obj = UnityObjectExtensions.FindObjectById(instanceId);
+                    if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
 
-                    Type type;
-                    object target;
-
-                    if (currentObj is UnityEngine.Object uo)
+                    if (obj is UnityEngine.Object uo)
                     {
-                        if (uo == null) return null; // Handle destroyed objects
-                        type = uo.GetRuntimeType();
-                        target = uo.CastToRuntimeType();
+                        targetType = uo.GetRuntimeType();
+                        targetObj = uo.CastToRuntimeType();
                     }
                     else
                     {
-                        type = currentObj.GetType();
-                        target = currentObj;
+                        targetType = obj.GetType();
+                        targetObj = obj;
                     }
+                }
+                else
+                {
+                    targetType = UnityObjectExtensions.ResolveType(className);
+                    if (targetType == null) throw new Exception($"Type '{className}' not found.");
+                }
 
-                    currentObj = GetFieldValue(target, type, part);
+                string[] parts = name.Split('.');
+                object currentObj = targetObj;
+
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    string part = parts[i];
+                    if (i == 0 && targetObj == null)
+                    {
+                        currentObj = GetStaticFieldValue(targetType, part);
+                    }
+                    else
+                    {
+                        if (currentObj == null) return null;
+
+                        Type type;
+                        object target;
+
+                        if (currentObj is UnityEngine.Object uo)
+                        {
+                            if (uo == null) return null; // Handle destroyed objects
+                            type = uo.GetRuntimeType();
+                            target = uo.CastToRuntimeType();
+                        }
+                        else
+                        {
+                            type = currentObj.GetType();
+                            target = currentObj;
+                        }
+
+                        currentObj = GetInstanceFieldValue(target, type, part);
+                    }
                 }
 
                 return currentObj.ToMcpValue();
             });
         }
 
-        private static object GetFieldValue(object obj, Type type, string name)
+        private static object GetStaticFieldValue(Type type, string name)
+        {
+            var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.IgnoreCase);
+            if (field != null) return field.GetValue(null);
+
+            var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.IgnoreCase);
+            if (prop != null) return prop.GetValue(null);
+
+            throw new Exception($"Static field or property '{name}' not found on type {type.FullName}");
+        }
+
+        private static object GetInstanceFieldValue(object obj, Type type, string name)
         {
             var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
             if (field != null) return field.GetValue(obj);
@@ -82,7 +138,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase);
             if (prop != null) return prop.GetValue(obj);
 
-            throw new Exception($"Field or property '{name}' not found on type {type.FullName}");
+            throw new Exception($"Instance field or property '{name}' not found on type {type.FullName}");
         }
     }
 }

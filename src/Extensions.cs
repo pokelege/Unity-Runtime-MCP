@@ -10,12 +10,50 @@ namespace PokeLege.UnityRuntimeMCP
     public static class UnityObjectCache
     {
         private static readonly System.Collections.Generic.Dictionary<int, WeakReference<object>> _cache = new();
+        private static readonly System.Collections.Generic.Dictionary<IntPtr, int> _pointerToId = new();
         private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, BoxedId> _dynamicIds = new();
+        private static readonly System.Collections.Generic.List<object> _strongRefs = new();
+        private static readonly int _maxStrongRefs = 200;
         private static int _nextDynamicId = 1000000000;
 
         private class BoxedId
         {
             public int Id { get; set; }
+        }
+
+        private static IntPtr GetIl2CppPointer(object obj)
+        {
+            if (obj == null) return IntPtr.Zero;
+            try
+            {
+                var prop = obj.GetType().GetProperty("Pointer", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (prop != null && prop.PropertyType == typeof(IntPtr))
+                {
+                    return (IntPtr)prop.GetValue(obj);
+                }
+                
+                var field = obj.GetType().GetField("Pointer", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (field != null && field.FieldType == typeof(IntPtr))
+                {
+                    return (IntPtr)field.GetValue(obj);
+                }
+            }
+            catch { }
+            return IntPtr.Zero;
+        }
+
+        private static void KeepAlive(object obj)
+        {
+            if (obj == null) return;
+            lock (_strongRefs)
+            {
+                _strongRefs.Remove(obj);
+                _strongRefs.Insert(0, obj);
+                if (_strongRefs.Count > _maxStrongRefs)
+                {
+                    _strongRefs.RemoveAt(_strongRefs.Count - 1);
+                }
+            }
         }
 
         public static void Register(UnityEngine.Object obj)
@@ -26,16 +64,46 @@ namespace PokeLege.UnityRuntimeMCP
             {
                 _cache[id] = new WeakReference<object>(obj);
             }
+            KeepAlive(obj);
         }
 
         public static int RegisterNonUnityObject(object obj)
         {
             if (obj == null) return 0;
 
+            // 1. Check if it's an IL2CPP object with a native pointer
+            IntPtr ptr = GetIl2CppPointer(obj);
+            if (ptr != IntPtr.Zero)
+            {
+                lock (_pointerToId)
+                {
+                    if (_pointerToId.TryGetValue(ptr, out int existingId))
+                    {
+                        lock (_cache)
+                        {
+                            _cache[existingId] = new WeakReference<object>(obj);
+                        }
+                        KeepAlive(obj);
+                        return existingId;
+                    }
+
+                    int id = System.Threading.Interlocked.Increment(ref _nextDynamicId);
+                    _pointerToId[ptr] = id;
+                    lock (_cache)
+                    {
+                        _cache[id] = new WeakReference<object>(obj);
+                    }
+                    KeepAlive(obj);
+                    return id;
+                }
+            }
+
+            // 2. Fallback to ConditionalWeakTable for pure managed C# objects
             lock (_dynamicIds)
             {
                 if (_dynamicIds.TryGetValue(obj, out var boxed))
                 {
+                    KeepAlive(obj);
                     return boxed.Id;
                 }
 
@@ -47,6 +115,7 @@ namespace PokeLege.UnityRuntimeMCP
                 {
                     _cache[id] = new WeakReference<object>(obj);
                 }
+                KeepAlive(obj);
                 return id;
             }
         }
@@ -57,7 +126,11 @@ namespace PokeLege.UnityRuntimeMCP
             {
                 if (_cache.TryGetValue(id, out var weakRef) && weakRef.TryGetTarget(out var obj))
                 {
-                    if (obj != null) return obj;
+                    if (obj != null)
+                    {
+                        KeepAlive(obj);
+                        return obj;
+                    }
                 }
             }
             return null;

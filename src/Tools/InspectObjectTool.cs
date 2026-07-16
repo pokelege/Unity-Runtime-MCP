@@ -19,7 +19,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "inspect_object",
                 Handle,
-                "Inspects a specific Unity object by its instance ID, returning its fields, properties, and optionally methods.",
+                "Inspects a specific Unity object by its instance ID, or a class by its class name (to query static members).",
                 new
                 {
                     type = "object",
@@ -28,70 +28,140 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                         instance_id = new
                         {
                             type = "integer",
-                            description = "The unique instance ID of the Unity object to inspect."
+                            description = "Optional: The unique instance ID of the Unity GameObject, Component, or cached object to inspect. Required if class_name is omitted."
+                        },
+                        class_name = new
+                        {
+                            type = "string",
+                            description = "Optional: The full class/type name to inspect static members of (e.g. 'UnityEngine.Time'). Required if instance_id is omitted."
                         },
                         include_methods = new
                         {
                             type = "boolean",
                             description = "Optional: Whether to include the methods list in the output (defaults to false to save context space)."
                         }
-                    },
-                    required = new[] { "instance_id" }
+                    }
                 }
             );
         }
 
         private static async Task<object> Handle(JsonElement parameters)
         {
-            if (!parameters.TryGetProperty("instance_id", out var idProp))
-                throw new Exception("Missing parameter: instance_id");
+            int instanceId = 0;
+            if (parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("instance_id", out var idProp))
+            {
+                if (idProp.ValueKind == JsonValueKind.Number)
+                {
+                    instanceId = idProp.GetInt32();
+                }
+            }
 
-            int instanceId = idProp.GetInt32();
+            string className = null;
+            if (parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("class_name", out var classProp))
+            {
+                if (classProp.ValueKind == JsonValueKind.String)
+                {
+                    className = classProp.GetString();
+                }
+            }
+
+            if (instanceId == 0 && string.IsNullOrEmpty(className))
+                throw new Exception("Missing parameter: either instance_id or class_name must be specified.");
+
             bool includeMethods = parameters.TryGetProperty("include_methods", out var methodsProp) && methodsProp.GetBoolean();
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = UnityObjectExtensions.FindObjectById(instanceId);
-                if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
+                Type systemType = null;
+                object typedObj = null;
+                string objName = null;
 
-                Type systemType;
-                object typedObj;
-                string objName;
-
-                if (obj is UnityEngine.Object unityObj)
+                if (instanceId != 0)
                 {
-                    systemType = unityObj.GetRuntimeType();
-                    typedObj = unityObj.CastToRuntimeType();
-                    objName = unityObj.name;
+                    var obj = UnityObjectExtensions.FindObjectById(instanceId);
+                    if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
+
+                    if (obj is UnityEngine.Object unityObj)
+                    {
+                        systemType = unityObj.GetRuntimeType();
+                        typedObj = unityObj.CastToRuntimeType();
+                        objName = unityObj.name;
+                    }
+                    else
+                    {
+                        systemType = obj.GetType();
+                        typedObj = obj;
+                        objName = systemType.Name;
+                    }
                 }
                 else
                 {
-                    systemType = obj.GetType();
-                    typedObj = obj;
+                    systemType = UnityObjectExtensions.ResolveType(className);
+                    if (systemType == null) throw new Exception($"Type '{className}' not found.");
                     objName = systemType.Name;
                 }
 
-                var fields = systemType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                    .Select(f => new { name = f.Name, type = f.FieldType.FullName, value = SafeGetValue(f, typedObj) });
-
-                var properties = systemType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                    .Select(p => new { name = p.Name, type = p.PropertyType.FullName, value = SafeGetPropValue(p, typedObj) });
-
+                object fields = null;
+                object properties = null;
                 object methods = null;
-                if (includeMethods)
+                object components = null;
+                bool? activeSelf = null;
+                bool? activeInHierarchy = null;
+
+                if (instanceId != 0 && typedObj is GameObject go)
                 {
-                    methods = systemType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                        .Select(m => new { name = m.Name, return_type = m.ReturnType.FullName, parameters = m.GetParameters().Select(p => new { p.Name, p.ParameterType.FullName }) });
+                    activeSelf = go.activeSelf;
+                    activeInHierarchy = go.activeInHierarchy;
+                    components = go.GetComponents<Component>()
+                        .Where(c => c != null)
+                        .Select(c => new
+                        {
+                            instance_id = c.GetInstanceID(),
+                            name = c.name,
+                            type = c.GetRuntimeType()?.FullName ?? c.GetType().FullName
+                        }).ToList();
+                    
+                    fields = Array.Empty<object>();
+                    properties = Array.Empty<object>();
+                }
+                else
+                {
+                    var bindingFlags = (instanceId != 0) 
+                        ? (BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                        : (BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
+                    fields = systemType.GetFields(bindingFlags)
+                        .Select(f => new { name = f.Name, type = f.FieldType.FullName, value = SafeGetValue(f, instanceId != 0 ? typedObj : null) }).ToList();
+
+                    properties = systemType.GetProperties(bindingFlags)
+                        .Select(p => new { name = p.Name, type = p.PropertyType.FullName, value = SafeGetPropValue(p, instanceId != 0 ? typedObj : null) }).ToList();
+
+                    if (includeMethods)
+                    {
+                        methods = systemType.GetMethods(bindingFlags)
+                            .Select(m => new { 
+                                name = m.Name, 
+                                return_type = m.ReturnType.FullName ?? m.ReturnType.Name, 
+                                parameters = m.GetParameters().Select(p => new { 
+                                    name = p.Name, 
+                                    parameter_type = p.ParameterType.FullName ?? p.ParameterType.Name 
+                                }) 
+                            }).ToList();
+                    }
                 }
 
                 return new
                 {
                     instance_id = instanceId,
+                    class_name = instanceId == 0 ? className : null,
                     name = objName,
                     type = systemType.FullName,
-                    fields,
-                    properties,
-                    methods
+                    active_self = activeSelf,
+                    active_in_hierarchy = activeInHierarchy,
+                    components = components,
+                    fields = fields,
+                    properties = properties,
+                    methods = methods
                 };
             });
         }

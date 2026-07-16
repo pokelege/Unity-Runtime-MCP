@@ -19,13 +19,14 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "invoke_method",
                 Handle,
-                "Invokes a method on a specific Unity object. Supports generic methods (e.g. GetComponent<T>) via type_args.",
+                "Invokes a method on a specific Unity object or static class. Supports generic methods (e.g. GetComponent<T>) via type_args.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        instance_id = new { type = "integer", description = "Instance ID of the object to call the method on." },
+                        instance_id = new { type = "integer", description = "Optional: Instance ID of the object to call the method on. Omit for static methods." },
+                        class_name = new { type = "string", description = "Optional: Full class/type name. Required if instance_id is omitted (for static methods)." },
                         name = new { type = "string", description = "Name of the method to invoke." },
                         args = new
                         {
@@ -40,19 +41,31 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                             description = "Optional: List of type names for generic methods (e.g. ['UnityEngine.Camera'] for GetComponent<Camera>())."
                         }
                     },
-                    required = new[] { "instance_id", "name" }
+                    required = new[] { "name" }
                 }
             );
         }
 
         private static async Task<object> Handle(JsonElement parameters)
         {
-            if (!parameters.TryGetProperty("instance_id", out var idProp)) throw new Exception("Missing parameter: instance_id");
             if (!parameters.TryGetProperty("name", out var nameProp)) throw new Exception("Missing parameter: name");
-            
-            int instanceId = idProp.GetInt32();
             string methodName = nameProp.GetString();
             
+            int instanceId = 0;
+            if (parameters.TryGetProperty("instance_id", out var idProp) && idProp.ValueKind == JsonValueKind.Number)
+            {
+                instanceId = idProp.GetInt32();
+            }
+
+            string className = null;
+            if (parameters.TryGetProperty("class_name", out var classNameProp) && classNameProp.ValueKind == JsonValueKind.String)
+            {
+                className = classNameProp.GetString();
+            }
+
+            if (instanceId == 0 && string.IsNullOrEmpty(className))
+                throw new Exception("Must provide either instance_id or class_name");
+
             List<string> args = new List<string>();
             if (parameters.TryGetProperty("args", out var argsProp))
             {
@@ -67,24 +80,36 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
-                var obj = UnityObjectExtensions.FindObjectById(instanceId);
-                if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
+                Type type = null;
+                object typedObj = null;
 
-                Type type;
-                object typedObj;
-
-                if (obj is UnityEngine.Object unityObj)
+                if (instanceId != 0)
                 {
-                    type = unityObj.GetRuntimeType();
-                    typedObj = unityObj.CastToRuntimeType();
+                    var obj = UnityObjectExtensions.FindObjectById(instanceId);
+                    if (obj == null) throw new Exception($"Object with ID {instanceId} not found.");
+
+                    if (obj is UnityEngine.Object unityObj)
+                    {
+                        type = unityObj.GetRuntimeType();
+                        typedObj = unityObj.CastToRuntimeType();
+                    }
+                    else
+                    {
+                        type = obj.GetType();
+                        typedObj = obj;
+                    }
                 }
                 else
                 {
-                    type = obj.GetType();
-                    typedObj = obj;
+                    type = UnityObjectExtensions.ResolveType(className);
+                    if (type == null) throw new Exception($"Type '{className}' not found.");
                 }
                 
-                var methods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                var bindingFlags = (instanceId != 0)
+                    ? (BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    : (BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
+                var methods = type.GetMethods(bindingFlags)
                     .Where(m => m.Name == methodName).ToList();
 
                 if (methods.Count == 0) throw new Exception($"Method '{methodName}' not found on type {type.FullName}.");

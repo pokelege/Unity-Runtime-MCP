@@ -47,6 +47,7 @@ namespace PokeLege.UnityRuntimeMCP
 
             // Register Tools (Phase 3)
             FindObjectsTool.Register();
+            FindTypesTool.Register();
             InspectObjectTool.Register();
             ReadFieldTool.Register();
             WriteFieldTool.Register();

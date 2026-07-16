@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>UnityRuntimeMCP</AssemblyName>
     <Product>UnityRuntimeMCP</Product>
-    <Version>1.0.0</Version>
+    <Version>1.0.5</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <RestoreAdditionalProjectSources>
@@ -21,6 +21,10 @@
       <HintPath>libs\%(RecursiveDir)%(FileName)%(Extension)</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="src\WebUI\**\*" />
   </ItemGroup>
 
 </Project>

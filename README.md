@@ -4,8 +4,10 @@ UnityRuntimeMCP is an implementation of the Model Context Protocol (MCP) as a Be
 
 ## Features
 
+- **Embedded Web UI Explorer**: Hosts a sleek, responsive browser interface (HTML/CSS/JS) directly at `http://localhost:<Port>/` (supports Auto Light/Dark mode). Allows scene hierarchy tree traversal, inline field editing, static/instance method calling, and live game screenshot stream.
 - **Live Inspection & Object Caching**: Discovery and inspection of Unity `GameObject`/`Component` instances, as well as non-Unity reference types (classes and arrays).
-- **Stable Identity Mapping**: Maintains a weak-reference cache of all encountered Unity Objects and non-Unity reference types. Non-Unity objects are assigned dynamic IDs starting at `1,000,000,000` to guarantee reference stability across frames.
+- **Pointer-Based Identity Mapping**: Resolves IL2CPP managed wrapper identity shifts by mapping dynamic IDs to native C++ object addresses (`IntPtr`). Keeps active views alive via a 200-object MRU keep-alive cache.
+- **Static Member Support**: Full reflection access to read/write static fields/properties, invoke static methods, and inspect static class members without needing instances.
 - **Deep Reflection & Serialization**: Access to fields, properties, and methods on derived types in IL2CPP environments. Automatically serializes collections and arrays up to 20 elements, caching nested non-Unity objects for further inspection.
 - **Runtime Modification**: Reading and writing values to object fields and properties with support for nested dot-notation paths.
 - **Visual Feedback**: Capture of game view screenshots in Base64 PNG format or saved to a cross-platform temporary directory.
@@ -18,17 +20,19 @@ The server registers the following MCP tools:
 
 | Tool | Description |
 | :--- | :--- |
-| `find_objects` | Finds active GameObjects by class name. Returns identity objects with `instance_id`. Returns an empty list if the class is missing. |
-| `get_hierarchy` | Returns immediate parent and children IDs for Unity GameObjects/Components. Restricted to Unity objects. |
-| `inspect_object` | Detailed member view. Supports Unity and cached non-Unity objects. `include_methods` defaults to `false` for efficiency. |
-| `read_field` | Reads a value. Supports dot-notation paths (e.g., `transform.parent.name`). Returns `null` for broken paths. |
-| `write_field` | Writes a value. Supports nested paths. Suggests preferring property setters over private backing fields to ensure side-effects execute. |
-| `invoke_method` | Executes a method on Unity or cached non-Unity objects. Supports generic methods via `type_args`. |
-| `take_screenshot` | Captures the game screen. Supports `scale` (0.1 to 1.0, default 0.5) and `save_to_file` (boolean). Uses a stable custom pipeline to avoid IL2CPP native JPG crash. |
+| `find_objects` | Finds active GameObjects or memory assets/inactive objects (when `include_assets` is true) by class name. |
+| `find_types` | Searches loaded system types in the AppDomain. Returns matching full class names. |
+| `get_hierarchy` | Returns immediate parent and children IDs for Unity GameObjects. Can return scene roots if `instance_id` is omitted. |
+| `inspect_object` | Detailed member view. Supports Unity objects, cached non-Unity objects, or static classes (when `class_name` is specified). |
+| `read_field` | Reads a value from an instance field/property, or static field/property if `class_name` is specified. Supports dot-notation paths. |
+| `write_field` | Writes a value. Supports nested paths and static fields/properties. |
+| `invoke_method` | Executes an instance or static method. Supports generic methods via `type_args`. |
+| `take_screenshot` | Captures the game screen. Supports `scale` (0.1 to 1.0) and `save_to_file`. |
 
 ## Feature Highlights
 
-- **Identity Mapping & Cache**: The server maintains a weak-reference cache of all encountered Unity Objects and non-Unity reference types (assigned dynamic IDs >= 1,000,000,000). This ensures that `instance_id` references remain stable across frames, even for objects that are inactive or difficult to locate via standard searches.
+- **Embedded Client Routing**: The HttpListener handles standard GET routes (`/`, `/app.js`, `/style.css`, `/assets/*`) to resolve embedded resources, allowing browser-based remote exploration.
+- **Identity Mapping & Cache**: The server maintains a weak-reference cache of all encountered Unity Objects and non-Unity reference types (assigned dynamic IDs >= 1,000,000,000). By referencing native IL2CPP memory pointers, IDs remain stable even when wrappers are garbage collected.
 - **Robust Path Traversal**: Dot-notation support in `read_field` and `write_field` allows for deep inspection in a single call. The system handles null segments gracefully, returning standard JSON `null` instead of errors.
 - **Generic Method Resolution**: Agents can invoke generic Unity methods by providing `type_args` (a list of full type names), enabling advanced operations like `GetComponent<TextMeshProUGUI>()`.
 - **Custom Screenshot Engine**: Avoids native IL2CPP `AccessViolationException` crashes by bypassing the native `EncodeToJPG` delegate. Instead, it blits the native screen buffer to a scaled `RenderTexture` and encodes it to a PNG. Scaled output reduces payload size, and setting `save_to_file` saves directly to the system temp directory (`C:\Users\Public\UnityRuntimeMCP_Temp` on Windows, `/tmp/UnityRuntimeMCP_Temp` on macOS/Linux).

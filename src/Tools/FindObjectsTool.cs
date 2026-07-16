@@ -17,7 +17,7 @@ namespace PokeLege.UnityRuntimeMCP.Tools
             McpServer.RegisterTool(
                 "find_objects",
                 Handle,
-                "Finds all active GameObjects of a specific type in the scene. Returns a list with instance_id and name.",
+                "Finds GameObjects or assets of a specific type. Returns a list with instance_id, name, and type.",
                 new
                 {
                     type = "object",
@@ -27,6 +27,11 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                         {
                             type = "string",
                             description = "The full name of the class/type to search for (e.g., 'UnityEngine.GameObject', 'TMPro.TextMeshProUGUI')."
+                        },
+                        include_assets = new
+                        {
+                            type = "boolean",
+                            description = "Optional: If true, searches all loaded assets, ScriptableObjects, and inactive objects in memory using Resources.FindObjectsOfTypeAll. Defaults to false."
                         }
                     },
                     required = new[] { "class_name" }
@@ -41,13 +46,31 @@ namespace PokeLege.UnityRuntimeMCP.Tools
 
             string className = classNameProp.GetString();
 
+            bool includeAssets = false;
+            if (parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("include_assets", out var includeAssetsProp))
+            {
+                if (includeAssetsProp.ValueKind == JsonValueKind.True || includeAssetsProp.ValueKind == JsonValueKind.False)
+                {
+                    includeAssets = includeAssetsProp.GetBoolean();
+                }
+            }
+
             return await McpMainThreadDispatcher.EnqueueAsync(() =>
             {
                 var type = UnityObjectExtensions.ResolveType(className);
                 if (type == null) return new System.Collections.Generic.List<object>();
 
                 var il2cppType = Il2CppType.From(type);
-                var objects = GameObject.FindObjectsOfType(il2cppType);
+                UnityEngine.Object[] objects;
+                
+                if (includeAssets)
+                {
+                    objects = Resources.FindObjectsOfTypeAll(il2cppType);
+                }
+                else
+                {
+                    objects = GameObject.FindObjectsOfType(il2cppType);
+                }
 
                 return objects.Select(obj => obj.ToMcpValue()).ToList();
             });

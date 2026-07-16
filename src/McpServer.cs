@@ -92,6 +92,43 @@ namespace PokeLege.UnityRuntimeMCP
             {
                 _logger.LogDebug($"Incoming {request.HttpMethod} request to {request.Url.AbsolutePath}");
 
+                // Add CORS headers to all responses
+                response.Headers.Add("Access-Control-Allow-Origin", "*");
+                response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+                response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+
+                if (request.HttpMethod == "OPTIONS")
+                {
+                    response.StatusCode = (int)HttpStatusCode.OK;
+                    return;
+                }
+
+                if (request.HttpMethod == "GET")
+                {
+                    string path = request.Url.AbsolutePath;
+                    if (path == "/" || path == "/index.html")
+                    {
+                        await ServeStaticFile(response, "index.html", "text/html");
+                        return;
+                    }
+                    if (path == "/style.css")
+                    {
+                        await ServeStaticFile(response, "style.css", "text/css");
+                        return;
+                    }
+                    if (path == "/app.js")
+                    {
+                        await ServeStaticFile(response, "app.js", "application/javascript");
+                        return;
+                    }
+                    if (path.StartsWith("/assets/") && path.EndsWith(".svg"))
+                    {
+                        string fileName = System.IO.Path.GetFileName(path);
+                        await ServeStaticFile(response, fileName, "image/svg+xml");
+                        return;
+                    }
+                }
+
                 if (request.HttpMethod == "GET" && request.Url.AbsolutePath == "/mcp")
                 {
                     _logger.LogDebug("Handling SSE connection request");
@@ -119,6 +156,44 @@ namespace PokeLege.UnityRuntimeMCP
                 {
                     response.Close();
                 }
+            }
+        }
+
+        private static async Task ServeStaticFile(HttpListenerResponse response, string resourceSuffix, string contentType)
+        {
+            try
+            {
+                var assembly = typeof(McpServer).Assembly;
+                var resourceName = assembly.GetManifestResourceNames()
+                    .FirstOrDefault(n => n.EndsWith(resourceSuffix, StringComparison.OrdinalIgnoreCase));
+
+                if (resourceName == null)
+                {
+                    response.StatusCode = (int)HttpStatusCode.NotFound;
+                    return;
+                }
+
+                using var stream = assembly.GetManifestResourceStream(resourceName);
+                if (stream == null)
+                {
+                    response.StatusCode = (int)HttpStatusCode.NotFound;
+                    return;
+                }
+
+                response.ContentType = contentType;
+                response.StatusCode = (int)HttpStatusCode.OK;
+
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await response.OutputStream.WriteAsync(buffer, 0, bytesRead);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to serve static file {resourceSuffix}: {ex}");
+                response.StatusCode = (int)HttpStatusCode.InternalServerError;
             }
         }
 
