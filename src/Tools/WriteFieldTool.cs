@@ -212,9 +212,61 @@ namespace PokeLege.UnityRuntimeMCP.Tools
         private static object ConvertValue(string value, Type targetType)
         {
             if (targetType == typeof(int)) return int.Parse(value);
-            if (targetType == typeof(float)) return float.Parse(value);
+            if (targetType == typeof(float)) return float.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
             if (targetType == typeof(bool)) return bool.Parse(value);
             if (targetType == typeof(string)) return value;
+
+            if (targetType == typeof(Color) || targetType.FullName == "UnityEngine.Color")
+            {
+                if (ColorUtility.TryParseHtmlString(value, out var parsedColor))
+                {
+                    return parsedColor;
+                }
+                var parts = value.Trim('(', ')', '[', ']').Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 3)
+                {
+                    float r = float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+                    float g = float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+                    float b = float.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture);
+                    float a = parts.Length > 3 ? float.Parse(parts[3], System.Globalization.CultureInfo.InvariantCulture) : 1f;
+                    return new Color(r, g, b, a);
+                }
+            }
+
+            if (targetType == typeof(Vector4) || targetType.FullName == "UnityEngine.Vector4")
+            {
+                var parts = value.Trim('(', ')', '[', ']').Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 4)
+                {
+                    return new Vector4(
+                        float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture),
+                        float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture),
+                        float.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture),
+                        float.Parse(parts[3], System.Globalization.CultureInfo.InvariantCulture)
+                    );
+                }
+            }
+
+            if (targetType == typeof(Vector2) || targetType.FullName == "UnityEngine.Vector2")
+            {
+                var parts = value.Trim('(', ')', '[', ']').Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    return new Vector2(
+                        float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture),
+                        float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture)
+                    );
+                }
+            }
+
+            if (typeof(UnityEngine.Object).IsAssignableFrom(targetType) || targetType.IsSubclassOf(typeof(UnityEngine.Object)))
+            {
+                if (int.TryParse(value, out int objId))
+                {
+                    var found = UnityObjectExtensions.FindObjectById(objId);
+                    if (found != null) return found;
+                }
+            }
 
             if (targetType == typeof(Type) || targetType.FullName == "Il2CppSystem.Type")
             {

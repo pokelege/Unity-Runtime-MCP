@@ -150,6 +150,12 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                     }
                 }
 
+                object materialProperties = null;
+                if (instanceId != 0 && typedObj is Material mat)
+                {
+                    materialProperties = ExtractMaterialProperties(mat);
+                }
+
                 return new
                 {
                     instance_id = instanceId,
@@ -159,11 +165,114 @@ namespace PokeLege.UnityRuntimeMCP.Tools
                     active_self = activeSelf,
                     active_in_hierarchy = activeInHierarchy,
                     components = components,
+                    material_properties = materialProperties,
                     fields = fields,
                     properties = properties,
                     methods = methods
                 };
             });
+        }
+
+        private static object ExtractMaterialProperties(Material mat)
+        {
+            try
+            {
+                var shader = mat.shader;
+                var propsList = new List<object>();
+                if (shader != null)
+                {
+                    int propCount = shader.GetPropertyCount();
+                    for (int i = 0; i < propCount; i++)
+                    {
+                        string propName = shader.GetPropertyName(i);
+                        string propDesc = shader.GetPropertyDescription(i);
+                        var propType = shader.GetPropertyType(i);
+                        string typeStr = propType.ToString();
+
+                        object val = null;
+                        object range = null;
+
+                        try
+                        {
+                            switch (typeStr)
+                            {
+                                case "Color":
+                                    var color = mat.GetColor(propName);
+                                    val = new
+                                    {
+                                        r = color.r,
+                                        g = color.g,
+                                        b = color.b,
+                                        a = color.a,
+                                        hex = "#" + ColorUtility.ToHtmlStringRGBA(color)
+                                    };
+                                    break;
+                                case "Vector":
+                                    var vec = mat.GetVector(propName);
+                                    val = new { x = vec.x, y = vec.y, z = vec.z, w = vec.w };
+                                    break;
+                                case "Float":
+                                    val = mat.GetFloat(propName);
+                                    break;
+                                case "Range":
+                                    val = mat.GetFloat(propName);
+                                    try
+                                    {
+                                        var rangeMethod = shader.GetType().GetMethod("GetPropertyRangeLimits");
+                                        if (rangeMethod != null)
+                                        {
+                                            var ps = rangeMethod.GetParameters();
+                                            if (ps.Length == 2 && ps[1].ParameterType == typeof(int))
+                                            {
+                                                float min = (float)rangeMethod.Invoke(shader, new object[] { i, 1 });
+                                                float max = (float)rangeMethod.Invoke(shader, new object[] { i, 2 });
+                                                range = new { min, max };
+                                            }
+                                            else if (ps.Length == 1)
+                                            {
+                                                var res = rangeMethod.Invoke(shader, new object[] { i });
+                                                if (res is Vector2 v2) range = new { min = v2.x, max = v2.y };
+                                            }
+                                        }
+                                    }
+                                    catch { }
+                                    break;
+                                case "Texture":
+                                    var tex = mat.GetTexture(propName);
+                                    val = tex.ToMcpValue();
+                                    break;
+                                default:
+                                    if (mat.HasProperty(propName))
+                                        val = mat.GetFloat(propName);
+                                    break;
+                            }
+                        }
+                        catch { }
+
+                        propsList.Add(new
+                        {
+                            name = propName,
+                            description = propDesc,
+                            type = typeStr,
+                            value = val,
+                            range = range
+                        });
+                    }
+                }
+
+                return new
+                {
+                    shader_name = shader != null ? shader.name : null,
+                    shader_instance_id = shader != null ? shader.GetInstanceID() : 0,
+                    render_queue = mat.renderQueue,
+                    shader_keywords = mat.shaderKeywords,
+                    properties = propsList
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { error = ex.Message };
+            }
         }
 
         private static object SafeGetValue(FieldInfo f, object obj)

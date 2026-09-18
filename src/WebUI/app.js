@@ -484,6 +484,11 @@ function renderComponentCard(comp, parentContainer) {
 function renderComponentDetails(details, bodyContainer, className = null) {
     bodyContainer.innerHTML = '';
     
+    // 0. Dedicated Material Properties View
+    if (details.material_properties && !details.material_properties.error) {
+        renderMaterialSection(details, bodyContainer);
+    }
+    
     // 1. Fields
     if (details.fields && details.fields.length > 0) {
         const fieldsSection = document.createElement('div');
@@ -585,6 +590,451 @@ function renderComponentDetails(details, bodyContainer, className = null) {
     }
 }
 
+// Render dedicated Material Section (Shader metadata, keywords, and uniform properties)
+function renderMaterialSection(details, bodyContainer) {
+    const matProps = details.material_properties;
+    if (!matProps) return;
+
+    const section = document.createElement('div');
+    section.className = 'inspect-table-container material-panel';
+
+    const title = document.createElement('h4');
+    title.textContent = 'Material & Shader Controls';
+    section.appendChild(title);
+
+    // Header: Shader, Render Queue, Keywords
+    const headerCard = document.createElement('div');
+    headerCard.className = 'material-header-card';
+
+    // Shader Row
+    const shaderRow = document.createElement('div');
+    shaderRow.className = 'material-meta-row';
+    const shaderLabel = document.createElement('span');
+    shaderLabel.className = 'material-meta-label';
+    shaderLabel.textContent = 'Active Shader';
+    const shaderVal = document.createElement('div');
+    shaderVal.className = 'material-meta-value';
+    if (matProps.shader_name) {
+        if (matProps.shader_instance_id) {
+            const shaderLink = document.createElement('a');
+            shaderLink.className = 'obj-ref-link';
+            shaderLink.textContent = matProps.shader_name;
+            shaderLink.title = `Inspect shader ${matProps.shader_instance_id}`;
+            shaderLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectObject(matProps.shader_instance_id, matProps.shader_name);
+            });
+            shaderVal.appendChild(shaderLink);
+        } else {
+            shaderVal.textContent = matProps.shader_name;
+        }
+    } else {
+        shaderVal.innerHTML = '<span style="color:var(--text-muted);font-style:italic">None</span>';
+    }
+    shaderRow.appendChild(shaderLabel);
+    shaderRow.appendChild(shaderVal);
+    headerCard.appendChild(shaderRow);
+
+    // Render Queue Row
+    const queueRow = document.createElement('div');
+    queueRow.className = 'material-meta-row';
+    const queueLabel = document.createElement('span');
+    queueLabel.className = 'material-meta-label';
+    queueLabel.textContent = 'Render Queue';
+    const queueVal = document.createElement('div');
+    queueVal.className = 'material-meta-value';
+    
+    const queueInput = document.createElement('input');
+    queueInput.className = 'inline-edit-input';
+    queueInput.type = 'number';
+    queueInput.style.width = '85px';
+    queueInput.value = matProps.render_queue !== undefined ? matProps.render_queue : 2000;
+
+    const queueSaveBtn = document.createElement('button');
+    queueSaveBtn.className = 'btn-icon';
+    queueSaveBtn.title = 'Save Render Queue';
+    queueSaveBtn.innerHTML = '<img src="assets/save.svg" alt="Save" width="14" height="14">';
+    queueSaveBtn.addEventListener('click', async () => {
+        queueSaveBtn.disabled = true;
+        try {
+            await callTool('write_field', {
+                instance_id: details.instance_id,
+                name: 'renderQueue',
+                value: queueInput.value
+            });
+            queueInput.style.borderColor = 'var(--accent-secondary)';
+            setTimeout(() => { queueInput.style.borderColor = ''; }, 1000);
+        } catch (err) {
+            alert(`Failed to set render queue: ${err.message}`);
+            queueInput.style.borderColor = 'var(--accent-danger)';
+        } finally {
+            queueSaveBtn.disabled = false;
+        }
+    });
+
+    queueVal.appendChild(queueInput);
+    queueVal.appendChild(queueSaveBtn);
+    queueRow.appendChild(queueLabel);
+    queueRow.appendChild(queueVal);
+    headerCard.appendChild(queueRow);
+
+    // Keywords Row
+    const kwRow = document.createElement('div');
+    kwRow.className = 'material-keywords-container';
+    const kwLabel = document.createElement('span');
+    kwLabel.className = 'material-meta-label';
+    kwLabel.textContent = 'Shader Keywords';
+    kwRow.appendChild(kwLabel);
+
+    const chipsContainer = document.createElement('div');
+    chipsContainer.className = 'keyword-chips';
+
+    const keywords = Array.isArray(matProps.shader_keywords) ? matProps.shader_keywords : [];
+    if (keywords.length === 0) {
+        chipsContainer.innerHTML = '<span style="color:var(--text-muted);font-size:11px;font-style:italic">No active keywords</span>';
+    } else {
+        keywords.forEach(kw => {
+            const chip = document.createElement('span');
+            chip.className = 'keyword-chip';
+            chip.textContent = kw;
+
+            const removeBtn = document.createElement('span');
+            removeBtn.className = 'keyword-remove-btn';
+            removeBtn.textContent = '×';
+            removeBtn.title = `Disable ${kw}`;
+            removeBtn.addEventListener('click', async () => {
+                try {
+                    await callTool('invoke_method', {
+                        instance_id: details.instance_id,
+                        name: 'DisableKeyword',
+                        args: [kw]
+                    });
+                    chip.remove();
+                } catch (err) {
+                    alert(`Failed to disable keyword: ${err.message}`);
+                }
+            });
+
+            chip.appendChild(removeBtn);
+            chipsContainer.appendChild(chip);
+        });
+    }
+
+    const addKwContainer = document.createElement('div');
+    addKwContainer.style.display = 'flex';
+    addKwContainer.style.gap = '6px';
+    addKwContainer.style.marginTop = '4px';
+
+    const addKwInput = document.createElement('input');
+    addKwInput.className = 'inline-edit-input';
+    addKwInput.placeholder = 'Add keyword (e.g. _EMISSION)';
+    addKwInput.style.flex = '1';
+
+    const addKwBtn = document.createElement('button');
+    addKwBtn.className = 'btn btn-secondary btn-sm';
+    addKwBtn.textContent = 'Enable';
+    addKwBtn.addEventListener('click', async () => {
+        const kwName = addKwInput.value.trim();
+        if (!kwName) return;
+        addKwBtn.disabled = true;
+        try {
+            await callTool('invoke_method', {
+                instance_id: details.instance_id,
+                name: 'EnableKeyword',
+                args: [kwName]
+            });
+            const updated = await callTool('inspect_object', { instance_id: details.instance_id, include_methods: true });
+            renderComponentDetails(updated, bodyContainer);
+        } catch (err) {
+            alert(`Failed to enable keyword: ${err.message}`);
+        } finally {
+            addKwBtn.disabled = false;
+        }
+    });
+
+    addKwContainer.appendChild(addKwInput);
+    addKwContainer.appendChild(addKwBtn);
+    kwRow.appendChild(chipsContainer);
+    kwRow.appendChild(addKwContainer);
+    headerCard.appendChild(kwRow);
+
+    section.appendChild(headerCard);
+
+    // Shader Properties Table
+    if (matProps.properties && matProps.properties.length > 0) {
+        const propTitle = document.createElement('h4');
+        propTitle.style.marginTop = '12px';
+        propTitle.textContent = 'Shader Properties';
+        section.appendChild(propTitle);
+
+        const table = document.createElement('table');
+        table.className = 'inspect-table';
+
+        matProps.properties.forEach(p => {
+            const tr = document.createElement('tr');
+
+            const tdName = document.createElement('td');
+            tdName.className = 'col-name';
+            tdName.innerHTML = `<div><strong>${p.name}</strong><span class="material-prop-type-badge">${p.type}</span></div>` +
+                (p.description ? `<div style="font-size:11px;color:var(--text-muted)">${p.description}</div>` : '');
+
+            const tdValue = document.createElement('td');
+            tdValue.className = 'col-value';
+
+            const tdActions = document.createElement('td');
+            tdActions.className = 'col-actions';
+
+            renderMaterialPropertyEditor(details.instance_id, p, tdValue, tdActions, bodyContainer);
+
+            tr.appendChild(tdName);
+            tr.appendChild(tdValue);
+            tr.appendChild(tdActions);
+            table.appendChild(tr);
+        });
+
+        section.appendChild(table);
+    }
+
+    bodyContainer.appendChild(section);
+}
+
+// Render dynamic Material property editor for shader properties
+function renderMaterialPropertyEditor(instanceId, prop, valContainer, actContainer, bodyContainer) {
+    const pType = prop.type;
+    const val = prop.value;
+
+    if (pType === 'Color') {
+        const container = document.createElement('div');
+        container.className = 'material-color-container';
+
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.className = 'material-color-swatch';
+
+        let hexVal = (val && val.hex) ? val.hex : '#ffffff';
+        if (hexVal.startsWith('#') && hexVal.length > 7) {
+            colorInput.value = hexVal.substring(0, 7);
+        } else if (hexVal.startsWith('#')) {
+            colorInput.value = hexVal;
+        } else {
+            colorInput.value = '#ffffff';
+        }
+
+        const hexTextInput = document.createElement('input');
+        hexTextInput.className = 'inline-edit-input';
+        hexTextInput.style.width = '90px';
+        hexTextInput.value = hexVal;
+
+        colorInput.addEventListener('input', () => {
+            hexTextInput.value = colorInput.value;
+        });
+
+        container.appendChild(colorInput);
+        container.appendChild(hexTextInput);
+        valContainer.appendChild(container);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn-icon';
+        saveBtn.title = 'Save Color';
+        saveBtn.innerHTML = '<img src="assets/save.svg" alt="Save" width="14" height="14">';
+
+        const saveColor = async () => {
+            saveBtn.disabled = true;
+            try {
+                await callTool('invoke_method', {
+                    instance_id: instanceId,
+                    name: 'SetColor',
+                    args: [prop.name, hexTextInput.value]
+                });
+                hexTextInput.style.borderColor = 'var(--accent-secondary)';
+                setTimeout(() => { hexTextInput.style.borderColor = ''; }, 1000);
+            } catch (err) {
+                alert(`Failed to set color: ${err.message}`);
+                hexTextInput.style.borderColor = 'var(--accent-danger)';
+            } finally {
+                saveBtn.disabled = false;
+            }
+        };
+
+        saveBtn.addEventListener('click', saveColor);
+        hexTextInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveColor(); });
+        actContainer.appendChild(saveBtn);
+        return;
+    }
+
+    if (pType === 'Range' || pType === 'Float') {
+        const container = document.createElement('div');
+        container.className = 'material-range-container';
+
+        const hasRange = prop.range && prop.range.min !== undefined && prop.range.max !== undefined && prop.range.min < prop.range.max;
+        const currentVal = typeof val === 'number' ? val : parseFloat(val) || 0;
+
+        const numInput = document.createElement('input');
+        numInput.type = 'number';
+        numInput.step = 'any';
+        numInput.className = 'inline-edit-input material-range-number';
+        numInput.value = currentVal;
+
+        let slider = null;
+        if (hasRange) {
+            slider = document.createElement('input');
+            slider.type = 'range';
+            slider.className = 'material-range-slider';
+            slider.min = prop.range.min;
+            slider.max = prop.range.max;
+            slider.step = ((prop.range.max - prop.range.min) / 100).toString();
+            slider.value = currentVal;
+
+            slider.addEventListener('input', () => {
+                numInput.value = slider.value;
+            });
+            numInput.addEventListener('input', () => {
+                slider.value = numInput.value;
+            });
+            container.appendChild(slider);
+        }
+
+        container.appendChild(numInput);
+        valContainer.appendChild(container);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn-icon';
+        saveBtn.title = 'Save Value';
+        saveBtn.innerHTML = '<img src="assets/save.svg" alt="Save" width="14" height="14">';
+
+        const saveFloat = async () => {
+            saveBtn.disabled = true;
+            try {
+                await callTool('invoke_method', {
+                    instance_id: instanceId,
+                    name: 'SetFloat',
+                    args: [prop.name, numInput.value]
+                });
+                numInput.style.borderColor = 'var(--accent-secondary)';
+                setTimeout(() => { numInput.style.borderColor = ''; }, 1000);
+            } catch (err) {
+                alert(`Failed to set property ${prop.name}: ${err.message}`);
+                numInput.style.borderColor = 'var(--accent-danger)';
+            } finally {
+                saveBtn.disabled = false;
+            }
+        };
+
+        if (slider) {
+            slider.addEventListener('change', saveFloat);
+        }
+        saveBtn.addEventListener('click', saveFloat);
+        numInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveFloat(); });
+        actContainer.appendChild(saveBtn);
+        return;
+    }
+
+    if (pType === 'Vector') {
+        const container = document.createElement('div');
+        container.className = 'material-vector-container';
+
+        const vec = (val && typeof val === 'object') ? val : { x: 0, y: 0, z: 0, w: 0 };
+        const inputs = ['x', 'y', 'z', 'w'].map(k => {
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.step = 'any';
+            inp.className = 'inline-edit-input';
+            inp.placeholder = k.toUpperCase();
+            inp.value = vec[k] !== undefined ? vec[k] : 0;
+            container.appendChild(inp);
+            return inp;
+        });
+
+        valContainer.appendChild(container);
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn-icon';
+        saveBtn.title = 'Save Vector';
+        saveBtn.innerHTML = '<img src="assets/save.svg" alt="Save" width="14" height="14">';
+
+        const saveVector = async () => {
+            saveBtn.disabled = true;
+            try {
+                const vecStr = inputs.map(i => i.value || '0').join(', ');
+                await callTool('invoke_method', {
+                    instance_id: instanceId,
+                    name: 'SetVector',
+                    args: [prop.name, vecStr]
+                });
+                inputs.forEach(i => {
+                    i.style.borderColor = 'var(--accent-secondary)';
+                    setTimeout(() => { i.style.borderColor = ''; }, 1000);
+                });
+            } catch (err) {
+                alert(`Failed to set vector: ${err.message}`);
+                inputs.forEach(i => { i.style.borderColor = 'var(--accent-danger)'; });
+            } finally {
+                saveBtn.disabled = false;
+            }
+        };
+
+        saveBtn.addEventListener('click', saveVector);
+        actContainer.appendChild(saveBtn);
+        return;
+    }
+
+    if (pType === 'Texture') {
+        if (val && typeof val === 'object' && val.instance_id !== undefined) {
+            const link = document.createElement('a');
+            link.className = 'obj-ref-link';
+            link.textContent = `${val.name || 'Texture'} (${getShortName(val.type)})`;
+            link.title = `Inspect texture ${val.instance_id}`;
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectObject(val.instance_id, val.name || 'Texture');
+            });
+            valContainer.appendChild(link);
+        } else {
+            valContainer.innerHTML = '<span style="color:var(--text-muted);font-style:italic">None (Texture)</span>';
+        }
+
+        const assignContainer = document.createElement('div');
+        assignContainer.style.display = 'flex';
+        assignContainer.style.gap = '4px';
+        assignContainer.style.marginTop = '4px';
+
+        const texIdInput = document.createElement('input');
+        texIdInput.className = 'inline-edit-input';
+        texIdInput.placeholder = 'Instance ID';
+        texIdInput.style.width = '75px';
+
+        const assignBtn = document.createElement('button');
+        assignBtn.className = 'btn btn-secondary btn-sm';
+        assignBtn.textContent = 'Set';
+        assignBtn.addEventListener('click', async () => {
+            const idVal = texIdInput.value.trim();
+            if (!idVal) return;
+            assignBtn.disabled = true;
+            try {
+                await callTool('invoke_method', {
+                    instance_id: instanceId,
+                    name: 'SetTexture',
+                    args: [prop.name, idVal]
+                });
+                texIdInput.value = '';
+                const updated = await callTool('inspect_object', { instance_id: instanceId, include_methods: true });
+                renderComponentDetails(updated, bodyContainer);
+            } catch (err) {
+                alert(`Failed to set texture: ${err.message}`);
+            } finally {
+                assignBtn.disabled = false;
+            }
+        });
+
+        assignContainer.appendChild(texIdInput);
+        assignContainer.appendChild(assignBtn);
+        valContainer.appendChild(assignContainer);
+        return;
+    }
+
+    valContainer.textContent = val !== null && val !== undefined ? String(val) : '';
+}
+
 // Render dynamic fields/properties editor with type-appropriate inputs
 function renderValueEditor(instanceId, name, type, value, valContainer, actContainer, className = null) {
     // 1. If value is null
@@ -609,6 +1059,38 @@ function renderValueEditor(instanceId, name, type, value, valContainer, actConta
     
     // 3. If collection/list
     if (Array.isArray(value)) {
+        if (value.length === 0) {
+            valContainer.innerHTML = '<span style="color:var(--text-muted);font-style:italic">Empty Array</span>';
+            return;
+        }
+
+        const isObjRefList = value.some(item => item && typeof item === 'object' && item.instance_id !== undefined);
+        if (isObjRefList) {
+            const listContainer = document.createElement('div');
+            listContainer.className = 'obj-ref-list';
+            value.forEach((item, idx) => {
+                if (item && typeof item === 'object' && item.instance_id !== undefined) {
+                    const link = document.createElement('a');
+                    link.className = 'obj-ref-link';
+                    link.textContent = `[${idx}] ${item.name || 'Object'} (${getShortName(item.type)})`;
+                    link.title = `Inspect reference ${item.instance_id}`;
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        selectObject(item.instance_id, item.name || 'Reference Object');
+                    });
+                    listContainer.appendChild(link);
+                } else {
+                    const span = document.createElement('span');
+                    span.style.color = 'var(--text-muted)';
+                    span.style.fontSize = '12px';
+                    span.textContent = `[${idx}] ${JSON.stringify(item)}`;
+                    listContainer.appendChild(span);
+                }
+            });
+            valContainer.appendChild(listContainer);
+            return;
+        }
+
         valContainer.innerHTML = `<span style="color:var(--text-secondary)">Array [${value.length}]</span>`;
         return;
     }

@@ -4,8 +4,9 @@ UnityRuntimeMCP is an implementation of the Model Context Protocol (MCP) as a Be
 
 ## Features
 
-- **Embedded Web UI Explorer**: Hosts a sleek, responsive browser interface (HTML/CSS/JS) directly at `http://localhost:<Port>/` (supports Auto Light/Dark mode). Allows scene hierarchy tree traversal, inline field editing, static/instance method calling, and live game screenshot stream.
+- **Embedded Web UI Explorer**: Hosts a sleek, responsive browser interface (HTML/CSS/JS) directly at `http://localhost:<Port>/` (supports Auto Light/Dark mode). Allows scene hierarchy tree traversal, object reference array navigation, dedicated material & shader inspector, inline field editing, static/instance method calling, and live game screenshot stream.
 - **Live Inspection & Object Caching**: Discovery and inspection of Unity `GameObject`/`Component` instances, as well as non-Unity reference types (classes and arrays).
+- **Material & Shader Inspection**: Direct inspection of Unity `Material` instances with automatic extraction of shader uniforms (colors, floats, ranges, vectors, textures), active shader keywords, and render queue, with runtime modification support.
 - **Pointer-Based Identity Mapping**: Resolves IL2CPP managed wrapper identity shifts by mapping dynamic IDs to native C++ object addresses (`IntPtr`). Keeps active views alive via a 200-object MRU keep-alive cache.
 - **Static Member Support**: Full reflection access to read/write static fields/properties, invoke static methods, and inspect static class members without needing instances.
 - **Deep Reflection & Serialization**: Access to fields, properties, and methods on derived types in IL2CPP environments. Automatically serializes collections and arrays up to 20 elements, caching nested non-Unity objects for further inspection.
@@ -33,6 +34,7 @@ The server registers the following MCP tools:
 
 - **Embedded Client Routing**: The HttpListener handles standard GET routes (`/`, `/app.js`, `/style.css`, `/assets/*`) to resolve embedded resources, allowing browser-based remote exploration.
 - **Identity Mapping & Cache**: The server maintains a weak-reference cache of all encountered Unity Objects and non-Unity reference types (assigned dynamic IDs >= 1,000,000,000). By referencing native IL2CPP memory pointers, IDs remain stable even when wrappers are garbage collected.
+- **Material & Shader Support**: Deep inspection of `UnityEngine.Material` instances extracts active shader properties (names, types, descriptions, range limits, and runtime values). The Web UI includes dedicated controls (color pickers, range sliders, keyword chips) for intuitive visual manipulation. See [docs/material-inspection.md](docs/material-inspection.md) for full implementation details.
 - **Robust Path Traversal**: Dot-notation support in `read_field` and `write_field` allows for deep inspection in a single call. The system handles null segments gracefully, returning standard JSON `null` instead of errors.
 - **Generic Method Resolution**: Agents can invoke generic Unity methods by providing `type_args` (a list of full type names), enabling advanced operations like `GetComponent<TextMeshProUGUI>()`.
 - **Custom Screenshot Engine**: Avoids native IL2CPP `AccessViolationException` crashes by bypassing the native `EncodeToJPG` delegate. Instead, it blits the native screen buffer to a scaled `RenderTexture` and encodes it to a PNG. Scaled output reduces payload size, and setting `save_to_file` saves directly to the system temp directory (`C:\Users\Public\UnityRuntimeMCP_Temp` on Windows, `/tmp/UnityRuntimeMCP_Temp` on macOS/Linux).
